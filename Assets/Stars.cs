@@ -2,6 +2,8 @@ using UnityEngine;
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System;
+using UnityEngine.UI;
+using TMPro;
 
 
 //Seeded building of stars is ready, takes a very long time to render every time, but should only have to run once.
@@ -35,6 +37,7 @@ public class Stars : MonoBehaviour
     public Vector2Int resolution = new Vector2Int(512, 512); // The resolution of each side of the skybox, Higher will mean more collision checks to see if we can see a Star, but will take longer to generate the texture
     public Vector3Int currentLocation = new Vector3Int(10, 10, 10); // The current Star location in the array.
     public Texture2D[] textures; // The array of textures for the skybox
+    public float glowMultiplier = 2.0f; // The multiplier for the glow of the stars, so we can see them better in the skybox
 
 
     //Visualizer
@@ -53,6 +56,13 @@ public class Stars : MonoBehaviour
     public Material exitPointMaterial; // The material for the exit point gizmo
     public GameObject visualStar;
     public Vector3Int starIndex = new Vector3Int(5, 5, 5); // The index of the Star point in the array
+
+    //Collision Visualizing
+    public bool collisionVisualize = false; // Whether or not to visualize the collision
+    public TextMeshProUGUI t1Text;
+    public TextMeshProUGUI t2Text;
+    public TextMeshProUGUI distText;
+    public GameObject collisionObject;
 
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
@@ -144,14 +154,26 @@ public class Stars : MonoBehaviour
                         Color inheritedColor = Color.black;
                         if (CheckForStarHit(entryPoint, exitPoint, stars[(int)index.x, (int)index.y, (int)index.z], out inheritedColor)) //If the ray hits a star
                         {
-                            //If the ray hits a star, we need to set the color of the pixel to the color of the star
-                            tex.SetPixel(i, j, stars[(int)index.x, (int)index.y, (int)index.z].color); //Set the color of the pixel to the color of the star
-                            Debug.Log("Hit a star, Left/Right");
-                            break; //Break out of the loop, we've hit a star
+                            //If the inheritedColor is brighter than the star color, we can assume that this star is being outshined by another, so we'll set the color to the inheritedColor instead.
+                            float advBrightnessHit = (inheritedColor.r + inheritedColor.g + inheritedColor.b) / 3;
+                            float advBrightnessBackup = (backupColor.r + backupColor.g + backupColor.b) / 3;
+                            if (advBrightnessHit > advBrightnessBackup) //If the inherited color is brighter than the backup color
+                            {
+                                tex.SetPixel(i, j, inheritedColor); //Set the color of the pixel to the color of the star
+                                break; //Continue to the next pixel
+                            }
+                            else
+                            {
+                                //Otherwise, Something in front of the star is outshining it, and blocking its light, so we'll set the color to the star color, so we'll use the backup color
+                                tex.SetPixel(i, j, backupColor);
+                                break; //Continue to the next pixel
+                            }
                         }
                         else
                         {
-                            backupColor += inheritedColor; //Might have to clamp this, not sure.
+                            //Use the max values for the inherited color, so we can see the glow of the star
+                            //We'll use max values, hopefully this will allow for some color mixing, while also preserving brightness
+                            backupColor = new Color(Mathf.Max(backupColor.r, inheritedColor.r), Mathf.Max(backupColor.g, inheritedColor.g), Mathf.Max(backupColor.b, inheritedColor.b));
 
                             //If we don't hit a star, we move on to the next sector
                             entryPoint = setEntryPoint(exitPoint, index); //Set the new entry point, for the next cube. We know we're going in an
@@ -162,7 +184,7 @@ public class Stars : MonoBehaviour
                     //Exiting the while loop means no hits, so set the pixel to black
                     if (index == new Vector3(-1, -1, -1)) //If we hit the edge of the universe
                     {
-                        tex.SetPixel(i, j, Color.black); //Set the color of the pixel to black
+                        tex.SetPixel(i, j, backupColor); // Set the color to the backup color
                     }
                 }
             }
@@ -185,26 +207,38 @@ public class Stars : MonoBehaviour
                         //Calculate the new exit point, based on the new entry point and the direction
                         exitPoint = CalculateExitPoint(entryPoint, direction); //The exit point of the ray
                         Color inheritedColor = Color.black;
-                        //Check if the ray hits a star
                         if (CheckForStarHit(entryPoint, exitPoint, stars[(int)index.x, (int)index.y, (int)index.z], out inheritedColor)) //If the ray hits a star
                         {
-                            //If the ray hits a star, we need to set the color of the pixel to the color of the star
-                            tex.SetPixel(i, j, stars[(int)index.x, (int)index.y, (int)index.z].color); //Set the color of the pixel to the color of the star
-                            Debug.Log("Hit a star, Up/Down");
-                            break; //Break out of the loop, we've hit a star
+                            //If the inheritedColor is brighter than the star color, we can assume that this star is being outshined by another, so we'll set the color to the inheritedColor instead.
+                            float advBrightnessHit = (inheritedColor.r + inheritedColor.g  +inheritedColor.b) / 3;
+                            float advBrightnessBackup = (backupColor.r + backupColor.g + backupColor.b) / 3;
+                            if (advBrightnessHit > advBrightnessBackup) //If the inherited color is brighter than the backup color
+                            {
+                                tex.SetPixel(i, j, inheritedColor); //Set the color of the pixel to the color of the star
+                                break; //Continue to the next pixel
+                            }
+                            else
+                            {
+                                //Otherwise, Something in front of the star is outshining it, and blocking its light, so we'll set the color to the star color, so we'll use the backup color
+                                tex.SetPixel(i, j, backupColor);
+                                break; //Continue to the next pixel
+                            }
                         }
                         else
                         {
+                            //Use the max values for the inherited color, so we can see the glow of the star
+                            backupColor = new Color(Mathf.Max(backupColor.r, inheritedColor.r), Mathf.Max(backupColor.g, inheritedColor.g), Mathf.Max(backupColor.b, inheritedColor.b));
+
                             //If we don't hit a star, we move on to the next sector
-                            backupColor += inheritedColor; //Might have to clamp this, not sure.
                             entryPoint = setEntryPoint(exitPoint, index); //Set the new entry point, for the next cube. We know we're going in an
                             index = GetNextSectorIndex(index, exitPoint); //Get the next sector index, so we can check if the ray hits a star in the next sector.
                         }
                     }
+
                     //Exiting the while loop means no hits, so set the pixel to black
                     if (index == new Vector3(-1, -1, -1)) //If we hit the edge of the universe
                     {
-                        tex.SetPixel(i, j, Color.black); //Set the color of the pixel to black
+                        tex.SetPixel(i, j, backupColor); // Set the color to the backup color
                     }
                 }
             }
@@ -227,26 +261,38 @@ public class Stars : MonoBehaviour
                         //Calculate the new exit point, based on the new entry point and the direction
                         exitPoint = CalculateExitPoint(entryPoint, direction); //The exit point of the ray
                         Color inheritedColor = Color.black;
-                        //Check if the ray hits a star
                         if (CheckForStarHit(entryPoint, exitPoint, stars[(int)index.x, (int)index.y, (int)index.z], out inheritedColor)) //If the ray hits a star
                         {
-                            //If the ray hits a star, we need to set the color of the pixel to the color of the star
-                            tex.SetPixel(i, j, stars[(int)index.x, (int)index.y, (int)index.z].color); //Set the color of the pixel to the color of the star
-                            Debug.Log("Hit a star, Front/Back");
-                            break; //Break out of the loop, we've hit a star
+                            //If the inheritedColor is brighter than the star color, we can assume that this star is being outshined by another, so we'll set the color to the inheritedColor instead.
+                            float advBrightnessHit = (inheritedColor.r + inheritedColor.g + inheritedColor.b) / 3;
+                            float advBrightnessBackup = (backupColor.r + backupColor.g + backupColor.b) / 3;
+                            if (advBrightnessHit > advBrightnessBackup) //If the inherited color is brighter than the backup color
+                            {
+                                tex.SetPixel(i, j, inheritedColor); //Set the color of the pixel to the color of the star
+                                break; //Continue to the next pixel
+                            }
+                            else
+                            {
+                                //Otherwise, Something in front of the star is outshining it, and blocking its light, so we'll set the color to the star color, so we'll use the backup color
+                                tex.SetPixel(i, j, backupColor);
+                                break; //Continue to the next pixel
+                            }
                         }
                         else
                         {
+                            //Use the max values for the inherited color, so we can see the glow of the star
+                            backupColor = new Color(Mathf.Max(backupColor.r, inheritedColor.r), Mathf.Max(backupColor.g, inheritedColor.g), Mathf.Max(backupColor.b, inheritedColor.b));
+
                             //If we don't hit a star, we move on to the next sector
-                            backupColor += inheritedColor; //Might have to clamp this, not sure.
                             entryPoint = setEntryPoint(exitPoint, index); //Set the new entry point, for the next cube. We know we're going in an
                             index = GetNextSectorIndex(index, exitPoint); //Get the next sector index, so we can check if the ray hits a star in the next sector.
                         }
                     }
+
                     //Exiting the while loop means no hits, so set the pixel to black
                     if (index == new Vector3(-1, -1, -1)) //If we hit the edge of the universe
                     {
-                        tex.SetPixel(i, j, Color.black); //Set the color of the pixel to black
+                        tex.SetPixel(i, j, backupColor); // Set the color to the backup color
                     }
                 }
             }
@@ -386,10 +432,12 @@ public class Stars : MonoBehaviour
         Vector3 starPosition = new Vector3(star.offSet.x * AUSize, star.offSet.y * AUSize, star.offSet.z * AUSize); //The position of the Star
         float starSize = (baseStarRadius + (radiusIncrease * star.mass)) * 0.5f; //The radius of the Star, discovered recently that the scale is actually the diameter, so we need to divide by 2
 
+        //For some reason, this code just WON'T WORK if I'm normalizing the ray direction, so I'm going to have to do some math to get the ray direction normalized, and then use that for the raycasting.
         Vector3 rayDirNotNormalized = entryPoint - exitPoint; //The direction of the ray
+        Vector3 dirNormalized = rayDirNotNormalized.normalized; //The normalized direction of the ray
         Vector3 starDirection = (starPosition - entryPoint); //The direction of the ray
 
-        float a = Vector3.Dot(rayDirNotNormalized, rayDirNotNormalized);
+        float a = Vector3.Dot(rayDirNotNormalized, rayDirNotNormalized); //The length of the ray
         float b = 2 * Vector3.Dot(starDirection, rayDirNotNormalized); //The distance between the entry point and the Star
         float c = Vector3.Dot(starDirection, starDirection) - starSize * starSize;
 
@@ -404,41 +452,55 @@ public class Stars : MonoBehaviour
 
             if ((t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1)) //If both solutions are positive, then the ray hits the Star
             {
-                color = Color.black; //Return black, we'll grab the star we hit outside of this function
+                color = star.color; //Return the color of the star
                 return true; //Show the visual Star
             }
-
-            color = Color.black;
-            return false;
         }
-        else
+
+        //Outer glow radius
+        c = Vector3.Dot(starDirection, starDirection) - (starSize * glowMultiplier) * (starSize * glowMultiplier);
+        discriminant = b * b - 4 * a * c; //The discriminant of the quadratic equation
+
+        //Outer glow hit, so we can inherit some light from the star
+        if (discriminant >= 0)
         {
-            //Calculate the closest distance between the ray and the star
-            float t = Vector3.Dot(starDirection, rayDirNotNormalized);
-
-            //if the closest distance is less than 4x the radius of the star, we can inherit some light from the star
-            if (t < 0)
+            //Possible hit
+            discriminant = Mathf.Sqrt(discriminant); //The square root of the discriminant
+            float t1 = (-b - discriminant) / (2 * a); //The first solution of the quadratic equation
+            float t2 = (-b + discriminant) / (2 * a); //The second solution of the quadratic equation
+            if ((t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1)) //If both solutions are positive, then the ray hits the Star
             {
-                t = -t;
+                float glowDiameter = starSize * 2 * glowMultiplier; //The diameter of the glow, radius * 2 * glowRadius
+
+                //What percent of the glow does the ray travel through?
+                Vector3 intersection1 = entryPoint + rayDirNotNormalized * t1; //The first intersection point
+                Vector3 intersection2 = entryPoint + rayDirNotNormalized * t2; //The second intersection point
+                float distance = Vector3.Distance(intersection1, intersection2); //The distance between the two intersection points
+
+                float percent = distance / glowDiameter; //The percent of the glow that the ray travels through
+
+                float glowStrength = CalculateGlowStrength(percent); //Calculate the glow strength based on the percent of the glow that the ray travels through
+
+                color = Color.Lerp(Color.black, star.color, glowStrength); //The color of the star, based on the glow strength
+                return false; //No collision, so keep looking.
             }
 
-            if (t < starSize * 4)
-            {
-                //We'll inherit between 0 and 50% of the light from the star, depending on how close we are to it
-                //We'll use a curve, so the light falls off quickly at the edge of the extended radius
-                t = t - starSize; //Ignore the first radius
-                t = t / (starSize * 3); //Divide by the extended radius, t is now the percentage of light we can inherit
-                t = Mathf.Clamp01(t); //Clamp t between 0 and 1
-
-                float light = (Mathf.Pow(-t, 2) + 1) / 2; //Should limit the light at 0.5 at 0, to 0 at 1
-                color = new Color(star.color.r * light, star.color.g * light, star.color.b * light); //The color of the star, multiplied by the light
-            }
-            else
-            {
-                color = Color.black; //The color of the star
-            }
-            return false;
         }
+        color = Color.black;
+        return false;
+    }
+
+    //Where the curve lives, a value between 0 and 1, 1 means 100% of light.
+    float CalculateGlowStrength(float percent)
+    {
+        float max = 0.75f; //The maximum value of the curve
+
+        float str = Mathf.Pow(percent, 4); //The strength of the glow, based on the percent of the glow that the ray travels through
+
+        //Clamp the value between 0 and max
+        str = Mathf.Clamp(str, 0, max); //Clamp the value between 0 and 1
+
+        return str;
     }
 
     void Refresh()
@@ -716,6 +778,43 @@ public class Stars : MonoBehaviour
 
 
             
+        }
+    
+        if (collisionVisualize)
+        {
+            //Draw the line between the two gizmos, we'll use the same gizmos as the raycasting
+            Debug.DrawLine(gizmoOne.transform.position, gizmoTwo.transform.position, Color.red);
+
+            //Detect the sphere collisions
+            //we'll do the smae math as in our checkForStarHit, but we'll do it all here so we can output some values.
+            Vector3 p1 = gizmoOne.transform.position; //The entry point of the ray
+            Vector3 p2 = gizmoTwo.transform.position; //The exit point of the ray
+
+            Vector3 objectPos = collisionObject.transform.position; //The position of the object
+            float radius = collisionObject.transform.localScale.x / 2; //The radius of the object, assuming its a sphere
+
+            Vector3 rayDirNotNormalized = p1 - p2; //The direction of the ray
+            Vector3 rayDir = rayDirNotNormalized.normalized; //The direction of the ray, normalized
+            Vector3 objectDirection = (objectPos - p1); //The direction of the ray
+            float a = Vector3.Dot(rayDir, rayDir);
+            float b = 2 * Vector3.Dot(objectDirection, rayDir); //The distance between the entry point and the object
+            float c = Vector3.Dot(objectDirection, objectDirection) - radius * radius;
+            float discriminant = b * b - 4 * a * c; //The discriminant of the quadratic equation
+
+            discriminant = Mathf.Sqrt(discriminant); //The square root of the discriminant
+            float t1 = (-b - discriminant) / (2 * a); //The first solution of the quadratic equation    
+            float t2 = (-b + discriminant) / (2 * a); //The second solution of the quadratic equation
+
+
+            if (t1Text != null && t2Text != null && distText != null)
+            {
+                Vector3 intersectOne = new Vector3(p1.x + (rayDir.x * t1), p1.y + (rayDir.y * t1), p1.z + (rayDir.z * t1)); //The first intersection point
+                Vector3 intersectTwo = new Vector3(p1.x + (rayDir.x * t2), p1.y + (rayDir.y * t2), p1.z + (rayDir.z * t2)); //The second intersection point
+
+                t1Text.text = (p1 + (new Vector3(rayDir.x * t1, rayDir.y * t1, rayDir.z * t1))).ToString(); //Set the text of the t1 text object
+                t2Text.text = (p1 + (new Vector3(rayDir.x * t2, rayDir.y * t2, rayDir.z * t2))).ToString(); //Set the text of the t2 text object
+                distText.text = (Vector3.Distance(intersectOne, intersectTwo)).ToString(); //Set the text of the distance text object
+            }
         }
     }
 

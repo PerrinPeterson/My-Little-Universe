@@ -1,0 +1,719 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+
+//Skybox Params
+int width;
+int height;
+int depth;
+float baseRadius;
+float radiusIncrease;
+float AUSize; //The size of the AU, Unity units
+float glowMultiplier;
+uint2 resolution;
+float3 stepSize;
+float3 bottomRight;
+float3 test; //The test Direction, to tell which axis we're working in.
+float3 starSectorSize; //The size of the star sector, in AU
+int3 startingStarIndex; //The current star index
+
+//Skybox Buffers
+StructuredBuffer<float3> starOffsets; //The offsets of the stars, in AU
+StructuredBuffer<float4> starColors;
+StructuredBuffer<float> starSizes; //Technically are ints, but Im pretty sure the GPU will treat them as floats anyway
+
+float3 setEntryPoint(float3 oldExitPoint, uint3 currentStarIndex)
+{
+    const float epsilon = 0.0001f;
+
+    if (oldExitPoint.x >= starSectorSize.x * AUSize / 2.0f - epsilon || oldExitPoint.x <= -starSectorSize.x * AUSize / 2.0f + epsilon)
+    {
+        //To combat floating point issues, i'm going to push the entry point towards the center by epsilon, so we dont hit the plane we entered
+        oldExitPoint.x = -oldExitPoint.x;
+        //oldExitPoint.x += epsilon * (oldExitPoint.x > 0 ? -1 : 1);
+    }
+    if (oldExitPoint.y >= starSectorSize.y * AUSize / 2.0f - epsilon || oldExitPoint.y <= -starSectorSize.y * AUSize / 2.0f + epsilon)
+    {
+        oldExitPoint.y = -oldExitPoint.y;
+        //oldExitPoint.y += epsilon * (oldExitPoint.y > 0 ? -1 : 1);
+    }
+    if (oldExitPoint.z >= starSectorSize.z * AUSize / 2.0f - epsilon || oldExitPoint.z <= -starSectorSize.z * AUSize / 2.0f + epsilon)
+    {
+        oldExitPoint.z = -oldExitPoint.z;
+        //oldExitPoint.z += epsilon * (oldExitPoint.z > 0 ? -1 : 1);
+    }
+    
+    return oldExitPoint;
+}
+
+//IF ANYWHERE IS GOING TO BREAK, IT WILL BE HERE. THIS IS THE FUNCTION THAT CALCULATES THE EXIT POINT OF THE RAY.
+//I'm loosing the unity planes, and am now having to do the intersection math myself. Which is very very new.
+float3 CalculateExitPoint(float3 entryPoint, float3 direction, int3 currentIndex, int3 oldIndex)
+{
+    const float epsilon = 0.01f; //A small value to prevent floating point errors
+    
+    //Updated to instead by twice as long as I idealy need it to be, but this scales correctly and should stop any amount of floating point inaccuracy.
+    float maxDistance = sqrt(pow(starSectorSize.x * AUSize, 2) + pow(starSectorSize.y * AUSize, 2) + pow(starSectorSize.z * AUSize, 2)) * 2;
+    
+    float hx = starSectorSize.x * AUSize / 2;
+    float hy = starSectorSize.y * AUSize / 2;
+    float hz = starSectorSize.z * AUSize / 2;
+    
+    float3 planes[] = {
+        float3(1, 0, 0), float3(-1, 0, 0),
+        float3(0, 1, 0), float3(0, -1, 0),
+        float3(0, 0, 1), float3(0, 0, -1)
+    }; //The 6 planes of the box, defined by their normal vectors   
+    float3 inPoints[] =
+    {
+        float3(hx, 0, 0), float3(-hx, 0, 0),
+        float3(0, hy, 0), float3(0, -hy, 0),
+        float3(0, 0, hz), float3(0, 0, -hz)
+    }; //The points of the box that we need to check against
+    bool entryPlanes[] =
+    {
+        false, false,
+        false, false,
+        false, false
+    }; //If the entry point entered in these planes, we need to ignore it.
+    bool exitPlanes[] =
+    {
+        false, false,
+        false, false,
+        false, false
+    }; //If the exit point entered in these planes, we need to record it. 
+    
+    //Compare old vs new index to determine entry planes
+    if (currentIndex.x != oldIndex.x)
+    {
+        if (currentIndex.x > oldIndex.x)
+        {
+            entryPlanes[0] = true; //We entered the positive x plane
+        }
+        else
+        {
+            entryPlanes[1] = true; //We entered the negative x plane
+        }
+    }
+    if (currentIndex.y != oldIndex.y)
+    {
+        if (currentIndex.y > oldIndex.y)
+        {
+            entryPlanes[2] = true; //We entered the positive y plane
+        }
+        else
+        {
+            entryPlanes[3] = true; //We entered the negative y plane
+        }
+    }
+    if (currentIndex.z != oldIndex.z)
+    {
+        if (currentIndex.z > oldIndex.z)
+        {
+            entryPlanes[4] = true; //We entered the positive z plane
+        }
+        else
+        {
+            entryPlanes[5] = true; //We entered the negative z plane
+        }
+    }
+    
+    //Test for floating point innacuracy going the other way now.
+    //Bacuase of the scale, the entry point close to edges and corners could be outside the cube, so we'll move the entry point back along the direction vector
+    //By 25% of the max distance, since it's double the size anyways
+    //NOPE; Didn't work.
+    //entryPoint -= direction * (maxDistance * 0.05f); //Move the entry point back along the direction vector, to prevent floating point errors
+    
+    //Next check we're going to work with is seeing if we can record multiple exit planes. I think we're hitting a spot on certain edges and corners
+    //where the exit point is being inaccurate, and not working correctly.
+    
+    
+    //direction = normalize(direction); //Normalize the direction vector
+    float3 exitPoint = float3(0, 0, 0); //The exit point of the ray
+    float3 p1 = entryPoint; //The starting point of the ray
+    float3 p2 = entryPoint + direction * maxDistance; //The end point of the ray, at the maximum distance
+    float minDistance = maxDistance + epsilon; //The minimum distance to the exit point, initialized to the maximum distance
+    
+    bool passedFirst = false;
+    bool passedSecond = false;
+    bool passedThird = false;
+    bool passedFourth = false;
+    for (int i = 0; i < 6; i++)
+    {
+        if (entryPlanes[i]) //If we entered this plane, we need to ignore it
+            continue;
+        
+        float3 planeNormal = planes[i];
+        float3 inPoint = inPoints[i];
+        
+        float denom = dot(planeNormal, direction);
+        //Avoid divide by zero errors
+        if (abs(denom) > 1e-6)
+        {
+            passedFirst = true; //We can pass the first check, so we can do the math
+            float3 p1ToInPoint = p1 - inPoint;
+            float t = -dot(p1ToInPoint, planeNormal) / denom;
+            
+            //Check if the intersection point 
+            if (t >= 0)
+            {
+                passedSecond = true; //We can pass the second check, so we can do the math
+                float3 intersectionPoint = p1 + direction * t;
+                
+                //intersectionPoint.x = clamp(intersectionPoint.x, -hx, hx);
+                //intersectionPoint.y = clamp(intersectionPoint.y, -hy, hy);
+                //intersectionPoint.z = clamp(intersectionPoint.z, -hz, hz);
+                
+                if (abs(intersectionPoint.x) < hx + epsilon && abs(intersectionPoint.y) < hy + epsilon && abs(intersectionPoint.z) < hz + epsilon)
+                {
+                    passedThird = true; //We can pass the third check, so we can do the math
+                    //Check if the intersection point is within the bounds of the box
+                    float distance = length(intersectionPoint - entryPoint);
+                    
+                    if (distance < minDistance)
+                    {
+                        passedFourth = true;
+                        minDistance = distance;
+                        //if (exitPoint.x == intersectionPoint.x && exitPoint.y == intersectionPoint.y && exitPoint.z == intersectionPoint.z)
+                        //{
+                        //    Result[id.xy] = float4(0, 1, 1, 1); //If the exit point is the same as the intersection point, we can assume that we're in an infinite loop, so we can just return red
+                        //}
+                        
+                        exitPoint = intersectionPoint; //Set the exit point to the intersection point
+                        
+                        //Snap the exit point to the plane
+                        if (i == 0 || i == 1) //X plane
+                        {
+                            exitPoint.x = inPoint.x;
+                        }
+                        else if (i == 2 || i == 3) //Y plane
+                        {
+                            exitPoint.y = inPoint.y;
+                        }
+                        else if (i == 4 || i == 5) //Z plane
+                        {
+                            exitPoint.z = inPoint.z;
+                        }
+                    }
+                }
+                
+            }
+        }
+        
+    }
+    //if (!passedFirst)
+    //{
+    //    Result[id.xy] = float4(1, 0, 0, 1); //If we can't pass the first check, we can assume that we're in an infinite loop, so we can just return red]
+    //}
+    //else if (!passedSecond)
+    //{
+    //    Result[id.xy] = float4(0, 1, 0, 1); //If we can't pass the second check, we can assume that we're in an infinite loop, so we can just return green
+    //}
+    //else if (!passedThird)
+    //{
+    //    Result[id.xy] = float4(0, 0, 1, 1); //If we can't pass the third check, we can assume that we're in an infinite loop, so we can just return blue
+    //}
+    //else if (!passedFourth)
+    //{
+    //    Result[id.xy] = float4(1, 1, 0, 1); //If we can't pass the fourth check, we can assume that we're in an infinite loop, so we can just return yellow
+    //}
+
+    return exitPoint; //Return the exit point of the ray
+    
+}
+
+int3 GetNextSectorIndex(int3 currentStarIndex, float3 exitPoint, out float3 newExitPoint)
+{
+    //Whichever of the 3 axis is equal to the starSectorSize / 2, in either positive or negative direction, is the axis we need to move in.
+    
+    //Scaling issue possibly, so I'll change the delta to be scaling with the starSectorSize
+    float maxSize = starSectorSize.x * AUSize;
+    float delta = maxSize * 0.01f; //A small value to prevent floating point errors
+    
+    if (exitPoint.x + delta >= starSectorSize.x * AUSize / 2)
+    {
+        exitPoint.x = starSectorSize.x * AUSize / 2 - 0.001f;
+        currentStarIndex.x += 1;
+    }
+    else if (exitPoint.x - delta <= -starSectorSize.x * AUSize / 2 + delta)
+    {
+        exitPoint.x = -starSectorSize.x * AUSize / 2 + 0.001f;
+        currentStarIndex.x -= 1;
+    }
+    if (exitPoint.y >= starSectorSize.y * AUSize / 2 - delta)
+    {
+        exitPoint.y = starSectorSize.y * AUSize / 2 - 0.001f;
+        currentStarIndex.y += 1;
+    }
+    else if (exitPoint.y <= -starSectorSize.y * AUSize / 2 + delta)
+    {
+        exitPoint.y = -starSectorSize.y * AUSize / 2 + 0.001f;
+        currentStarIndex.y -= 1;
+    }
+    if (exitPoint.z >= starSectorSize.z * AUSize / 2 - delta)
+    {
+        exitPoint.z = starSectorSize.z * AUSize / 2 - 0.001f;
+        currentStarIndex.z += 1;
+    }
+    else if (exitPoint.z <= -starSectorSize.z * AUSize / 2 + delta)
+    {
+        exitPoint.z = -starSectorSize.z * AUSize / 2 + 0.001f;
+        currentStarIndex.z -= 1;
+    }
+
+    //Check to make sure the next sector is within bounds
+    if (currentStarIndex.x < 0 || currentStarIndex.x >= width || currentStarIndex.y < 0 || currentStarIndex.y >= height || currentStarIndex.z < 0 || currentStarIndex.z >= depth)
+    {
+        //If the next sector is out of bounds, return an invalid value
+        return int3(-1, -1, -1);
+    }
+
+    //New change, hopefully this will mean that the exit point will be adjusted every time we move into a new sector
+    newExitPoint = exitPoint;
+    return currentStarIndex;
+}
+
+int ConvertToIndex(int3 starIndex)
+{
+    //Convert the 3D index to a 1D index
+    //Note to future Perrin, this is assuming we add the stars in order of x, then y, then z, so nest the x inside the y, inside the z.
+    return starIndex.x + starIndex.y * width + starIndex.z * width * height;
+}
+
+//TODO: look into doing wavelength based glow, the lerp allows me to do that, allowing for a color shift based on the distance from the star.
+float CalculateGlowStrength(float percent)
+{
+    float maxVal = 0.75f; //The maximum value of the curve
+
+    float str = pow(percent, 4); //The strength of the glow, based on the percent of the glow that the ray travels through
+
+    //Clamp the value between 0 and max
+    str = max(str, 0);
+    str = min(str, maxVal);
+
+    return str;
+}
+
+//TODO: Rewrite this, probably only need the entry and direction
+bool CheckForStarHit(float3 entryPoint, float3 exitPoint, int3 starIndex, out float4 color)
+{
+    int index = ConvertToIndex(starIndex);
+    float starRadius = starSizes[index] * radiusIncrease + baseRadius;
+    float3 starPosition = starOffsets[index] * AUSize;
+    
+    //TODO: This code isn't working when I normalize the direction, despite the fact that it should be, so figure this out when I can run the shader.
+    float3 rayDirNotNormalized = exitPoint - entryPoint;
+    float3 starDirection = starPosition - entryPoint;
+    
+    float a = dot(rayDirNotNormalized, rayDirNotNormalized);
+    float b = 2 * dot(starDirection, rayDirNotNormalized);
+    float c = dot(starDirection, starDirection) - starRadius * starRadius;
+    
+    float discriminant = b * b - 4 * a * c;
+    
+    if (discriminant >= 0)
+    {
+        //Possible Hit
+        discriminant = sqrt(discriminant);
+        float t1 = (-b - discriminant) / (2 * a);
+        float t2 = (-b + discriminant) / (2 * a);
+        
+        if ((t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1))
+        {
+            //Hit
+            color = starColors[index];
+            return true; //Hit, so we stop looking
+        }
+    }
+    
+    //Outer Glow Radius
+    c = dot(starDirection, starDirection) - (starRadius * glowMultiplier) * (starRadius * glowMultiplier);
+    discriminant = b * b - 4 * a * c;
+    
+    //Outer glow just allows us to inherit some of the light from the star, we can think of it as reflecting off the dust and gas in the star system
+    if (discriminant >= 0)
+    {
+        //Possible Hit
+        discriminant = sqrt(discriminant);
+        float t1 = (-b - discriminant) / (2 * a);
+        float t2 = (-b + discriminant) / (2 * a);
+        
+        if ((t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1))
+        {
+            float glowDiameter = starRadius * 2 * glowMultiplier;
+            
+            float3 intersectionOne = entryPoint + rayDirNotNormalized * t1;
+            float3 intersectionTwo = entryPoint + rayDirNotNormalized * t2;
+            
+            float distance = length(intersectionOne - intersectionTwo);
+            
+            float percent = distance / glowDiameter;
+            
+            float glow = CalculateGlowStrength(percent);
+            
+            color = lerp(float4(0, 0, 0, 1), starColors[index], glow); //inherit the color of the star, but only a little bit
+            return false; //No hit, but we can still inherit some of the light from the star
+        }
+    }
+    
+    color = float4(0, 0, 0, 1); //No hit, so we return black
+    return false; //No hit
+}
+
+[numthreads(64,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    // TODO: insert actual code here!
+    //SO, the id is the pixel location, which we can use to move our direction with a stepSize and a bottomRight location.
+    //for my own reference, CHATGPT said that id.x would equal threadSize.x * groupID.x + localThreadID.x
+    
+    //error catch, if the id is out of bounds, return.
+    if (id.x >= resolution.x || id.y >= resolution.y)
+        return;
+    
+    float4 backupColor = float4(0, 0, 0, 1); //Starting with black, we can mostly ignore alpha, just make sure its always 1.
+    
+    int breakLimit = 50; //The maximum number of iterations to prevent infinite loops
+    int iterations = 0; //The number of iterations so far
+    //Working on a plane thats flat on the x axis
+    if (test.x == 0)
+    {
+        //Result[id.xy] = float4(0, 0, 0, 1); //Starting with black, we can mostly ignore alpha, just make sure its always 1.
+        float3 step = float3(0, stepSize.y * id.x, stepSize.z * id.y);
+        float3 exitPoint = bottomRight - step;
+        float3 direction = normalize(exitPoint); //We can calculate the ray direction like this, because the origin will always be 0,0,0
+        float3 entryPoint = setEntryPoint(exitPoint, startingStarIndex);
+        float3 newEntryPoint = float3(0, 0, 0); //Don't need this yet, but we will later
+        int3 oldIndex = startingStarIndex;
+        int3 index = GetNextSectorIndex(startingStarIndex, exitPoint, newEntryPoint);
+        
+        //if (exitPoint.y != 0)
+        {
+            //Result[id.xy] += float4(((1 / (starSectorSize.y * AUSize / 2)) * abs(exitPoint.y)), 0, 0, 0); //Red = positive y
+        }
+        //if (exitPoint.z != 0)
+        {
+            //Result[id.xy] += float4(0, ((1 / (starSectorSize.z * AUSize / 2)) * abs(exitPoint.z)), 0, 0); //Red = positive y
+        }
+        //if (exitPoint.x != 0)
+        {
+            //Result[id.xy] += float4(0, 0, ((1 / (starSectorSize.x * AUSize / 2)) * abs(exitPoint.x)), 0); //Red = positive y
+        }
+        
+        //Visualize the direction
+        //Result[id.xy] = float4(abs(direction.x), 0, 0, 1);
+        //Result[id.xy] = float4(0, abs(direction.y), 0, 1);
+        //Result[id.xy] = float4(0, 0, abs(direction.z), 1);
+        
+        //return;
+        while (index.x != -1 && iterations <= breakLimit)
+        {
+            
+            //TODO: Remove this, should be able to rewrite the CalculateExitPoint function to ignore the entry planes.
+            //entryPoint += direction * 0.1f; //Move the entry point along the ray, to try and get away from the entry plane.
+            exitPoint = CalculateExitPoint(entryPoint, direction, index, oldIndex);
+            //float3 oldExitPoint = exitPoint;
+            
+            //Currently error is happening at iteration = 1
+            
+            //if(iterations == 1)
+            //{
+            //    if (exitPoint.y != 0)
+            //    {
+            //        Result[id.xy] += float4(((1 / (starSectorSize.y * AUSize / 2)) * exitPoint.y), 0, 0, 0); //Red = positive y
+            //    }
+            //    if (exitPoint.z != 0)
+            //    {
+            //        Result[id.xy] += float4(0, ((1 / (starSectorSize.z * AUSize / 2)) * exitPoint.z), 0, 0); //Red = positive y
+            //    }
+            //    if (exitPoint.x != 0)
+            //    {
+            //        Result[id.xy] += float4(0, 0, ((1 / (starSectorSize.x * AUSize / 2)) * exitPoint.x), 0); //Red = positive y
+            //    }
+            //    if (exitPoint.x == 0 && exitPoint.y == 0 && exitPoint.z == 0)
+            //    {
+            //        Result[id.xy] = float4(1, 1, 1, 1); //White = no direction
+            //    }
+            //}
+            //if(iterations == 2)
+            //{
+            //    if (direction.y != 0)
+            //    {
+            //        Result[id.xy] += float4(direction.y, 0, 0, 0); //Red = positive y
+            //    }
+            //    if (direction.z != 0)
+            //    {
+            //        Result[id.xy] += float4(0, direction.z, 0, 0); //Red = positive y
+            //    }
+            //    if (direction.x != 0)
+            //    {
+            //        Result[id.xy] += float4(0, 0, direction.x, 0); //Red = positive y
+            //    }
+            //    if (direction.x == 0 && direction.y == 0 && direction.z == 0)
+            //    {
+            //        Result[id.xy] = float4(1, 1, 1, 1); //White = no direction
+            //    }
+            //}
+            //if (iterations == 1)
+            //{
+            //    if (exitPoint.x <= -starSectorSize.x * AUSize / 2 || exitPoint.x >= starSectorSize.x * AUSize / 2)
+            //    {
+            //        //Hit the x plane, so we can stop looking
+            //        Result[id.xy] += float4(1, 0, 0, 0);
+            //        break;
+            //    }
+            //    if (exitPoint.y <= -starSectorSize.y * AUSize / 2 || exitPoint.y >= starSectorSize.y * AUSize / 2)
+            //    {
+            //        //Hit the y plane, so we can stop looking
+            //        Result[id.xy] += float4(0, 1, 0, 0);
+            //        break;
+            //    }
+            //    if (exitPoint.z <= -starSectorSize.z * AUSize / 2 || exitPoint.z >= starSectorSize.z * AUSize / 2)
+            //    {
+            //        //Hit the z plane, so we can stop looking
+            //        Result[id.xy] += float4(0, 0, 1, 0);
+            //        break;
+            //    }
+            //}
+            
+            
+            
+            
+            entryPoint = setEntryPoint(exitPoint, index);
+            
+            //if(iterations == 0)
+            //{
+            //    if (entryPoint.y != 0)
+            //    {
+            //        Result[id.xy] += float4(((1 / (starSectorSize.y * AUSize / 2)) * entryPoint.y), 0, 0, 0); //Red = positive y
+            //    }
+            //    if (entryPoint.z != 0)
+            //    {
+            //        Result[id.xy] += float4(0, ((1 / (starSectorSize.z * AUSize / 2)) * entryPoint.z), 0, 0); //Red = positive y
+            //    }
+            //    if (entryPoint.x != 0)
+            //    {
+            //        Result[id.xy] += float4(0, 0, ((1 / (starSectorSize.x * AUSize / 2)) * entryPoint.x), 0); //Red = positive y
+            //    }
+            //    if (entryPoint.x == 0 && entryPoint.y == 0 && entryPoint.z == 0)
+            //    {
+            //        Result[id.xy] = float4(1, 1, 1, 1); //White = no direction
+            //    }
+            //}
+            
+            
+            //if (iterations == 5)
+            //{
+            //    if (index.y != 0)
+            //    {
+            //        Result[id.xy] += float4(((1.0f / width) * abs(startingStarIndex.y - index.y)), 0, 0, 0); //Red = positive y
+            //    }
+            //    if (index.z != 0)
+            //    {
+            //        Result[id.xy] += float4(0, ((1.0f / width) * abs(startingStarIndex.z - index.z)), 0, 0); //Red = positive y
+            //    }
+            //    if (index.x != 0)
+            //    {
+            //        Result[id.xy] += float4(0, 0, ((1.0f / width) * abs(startingStarIndex.x - index.x)), 0); //Red = positive y
+            //    }
+            //    if (index.x == 0 && index.y == 0 && index.z == 0)
+            //    {
+            //        Result[id.xy] = float4(1, 1, 1, 1); //White = no direction
+            //    }
+            //
+            
+            //If the index is equal to our starting index, something is wrong
+            if (iterations == 1)
+                if (index.x == startingStarIndex.x && index.y == startingStarIndex.y && index.z == startingStarIndex.z)
+                {
+                    backupColor = float4(1, 0, 1, 1); //Magenta = stuck in same voxel
+                    break;
+                }
+            
+            oldIndex = index; //Save the old index
+            float3 newEntryPoint = float3(0, 0, 0); //The new entry point of the ray, to be adjusted inside the getNextSectorIndex function
+            index = GetNextSectorIndex(index, exitPoint, newEntryPoint);
+            entryPoint = newEntryPoint;
+            
+            //To stop infinite loops, we need to check if the index is equal to our starting index
+            iterations++;
+            if (iterations >= breakLimit)
+            {
+                //If we hit the break limit, we can assume that we're in an infinite loop, so we can just return red
+                backupColor = float4(1, 0, 0, 1);
+                break;
+            }
+            
+            //Result[id.xy] = backupColor;
+            continue;
+            //break;
+            float4 inheritedColor = float4(0, 0, 0, 1);
+            
+            if (CheckForStarHit(entryPoint, exitPoint, index, inheritedColor))
+            {
+                
+                //combine the max color values from the backup and the inherited color
+                //This should mean that stars can "shine" through each other, but dim ones will be overpowered by bright ones.
+                backupColor.r = max(backupColor.r, inheritedColor.r);
+                backupColor.g = max(backupColor.g, inheritedColor.g);
+                backupColor.b = max(backupColor.b, inheritedColor.b);
+                
+                break; //We hit a star, so we can stop looking
+            }
+            else
+            {
+                //We didn't hit a star, so we can inherit the color from the star
+                backupColor.r = max(backupColor.r, inheritedColor.r);
+                backupColor.g = max(backupColor.g, inheritedColor.g);
+                backupColor.b = max(backupColor.b, inheritedColor.b);
+                
+                
+                entryPoint = setEntryPoint(exitPoint, index);
+                //if (oldEntryPoint.x == entryPoint.x && oldEntryPoint.y == entryPoint.y && oldEntryPoint.z == entryPoint.z)
+                //{
+                    //If the entry point is the same as the old entry point, we can assume that we're in an infinite loop, so we can just return red
+                    //backupColor = float4(1, 0, 0, 1);
+                    //break;
+                //}
+                float3 newExitPoint = float3(0, 0, 0); //The new exit point of the ray, to be adjusted inside the getNextSectorIndex function
+                oldIndex = index; //Save the old index
+                index = GetNextSectorIndex(index, exitPoint, newExitPoint);
+                exitPoint = newExitPoint;
+                //if (oldIndex.x == index.x && oldIndex.y == index.y && oldIndex.z == index.z)
+                //{
+                    //If the index is the same as the old index, we can assume that we're in an infinite loop, so we can just return red
+                   // backupColor = float4(0, 1, 0, 1);
+                    //break;
+                //}
+                // If exit point didn't move
+                //if (distance(oldExitPoint, exitPoint) < 1e-5)
+                //{
+                //    Result[id.xy] = float4(1, 1, 0, 1); // Yellow = stuck on same exit point
+                //    break;
+                //}
+
+                // If index didn't change
+                //if (index.x == oldIndex.x && index.y == oldIndex.y && index.z == oldIndex.z)
+                //{
+                //    Result[id.xy] = float4(1, 0, 1, 1); // Magenta = stuck in same voxel
+                //    break;
+                //}
+
+                // If index out of bounds
+                //if (index.x < 0 || index.y < 0 || index.z < 0 || index.x >= width || index.y >= height || index.z >= depth)
+                //{
+                //    Result[id.xy] = float4(0, 1, 0, 1); // Green = out of bounds
+                //    break;
+                //}
+            }
+            iterations++;
+            if (iterations >= breakLimit)
+            {
+                //If we hit the break limit, we can assume that we're in an infinite loop, so we can just return red
+                backupColor = float4(1, 0, 0, 1);
+                break;
+            }
+        }
+        Result[id.xy] = backupColor;
+    }
+    else if (test.y == 0)
+    {
+        float3 step = float3(stepSize.x * id.x, 0, stepSize.z * id.y);
+        float3 exitPoint = bottomRight - step;
+        float3 direction = normalize(exitPoint); //We can calculate the ray direction like this, because the origin will always be 0,0,0
+        float3 entryPoint = setEntryPoint(exitPoint, startingStarIndex);
+        float3 newEntryPoint = float3(0, 0, 0); //Don't need this yet, but we will later
+        int3 oldIndex = startingStarIndex;
+        int3 index = GetNextSectorIndex(startingStarIndex, exitPoint, newEntryPoint);
+        //int3 index = GetNextSectorIndex(startingStarIndex, exitPoint);
+        
+        while (index.x != -1 && iterations <= breakLimit)
+        {
+            exitPoint = CalculateExitPoint(entryPoint, direction, index, oldIndex);
+            float4 inheritedColor = float4(0, 0, 0, 1);
+            if (CheckForStarHit(entryPoint, exitPoint, index, inheritedColor))
+            {
+                //combine the max color values from the backup and the inherited color
+                //This should mean that stars can "shine" through each other, but dim ones will be overpowered by bright ones.
+                backupColor.r = max(backupColor.r, inheritedColor.r);
+                backupColor.g = max(backupColor.g, inheritedColor.g);
+                backupColor.b = max(backupColor.b, inheritedColor.b);
+                
+                break; //We hit a star, so we can stop looking
+            }
+            else
+            {
+                //We didn't hit a star, so we can inherit the color from the star
+                backupColor.r = max(backupColor.r, inheritedColor.r);
+                backupColor.g = max(backupColor.g, inheritedColor.g);
+                backupColor.b = max(backupColor.b, inheritedColor.b);
+                entryPoint = setEntryPoint(exitPoint, index);
+                oldIndex = index; //Save the old index
+                float3 newEntryPoint = float3(0, 0, 0); //The new entry point of the ray, to be adjusted inside the getNextSectorIndex function
+                index = GetNextSectorIndex(index, exitPoint, newEntryPoint);
+                entryPoint = newEntryPoint;
+            }
+            iterations++;
+            if (iterations >= breakLimit)
+            {
+                //If we hit the break limit, we can assume that we're in an infinite loop, so we can just return red
+                backupColor = float4(1, 0, 0, 1);
+                break;
+            }
+        }
+        Result[id.xy] = backupColor;
+    }
+    else
+    {
+        float3 step = float3(stepSize.x * id.x, stepSize.y * id.y, 0);
+        float3 exitPoint = bottomRight - step;
+        float3 direction = normalize(exitPoint); //We can calculate the ray direction like this, because the origin will always be 0,0,0
+        float3 entryPoint = setEntryPoint(exitPoint, startingStarIndex);
+        float3 newEntryPoint = float3(0, 0, 0); //Don't need this yet, but we will later
+        int3 oldIndex = startingStarIndex;
+        int3 index = GetNextSectorIndex(startingStarIndex, exitPoint, newEntryPoint);
+        //int3 index = GetNextSectorIndex(startingStarIndex, exitPoint);
+        
+        while (index.x != -1 && iterations <= breakLimit)
+        {
+            exitPoint = CalculateExitPoint(entryPoint, direction, index, oldIndex);
+            float4 inheritedColor = float4(0, 0, 0, 1);
+            if (CheckForStarHit(entryPoint, exitPoint, index, inheritedColor))
+            {
+                //combine the max color values from the backup and the inherited color
+                //This should mean that stars can "shine" through each other, but dim ones will be overpowered by bright ones.
+                backupColor.r = max(backupColor.r, inheritedColor.r);
+                backupColor.g = max(backupColor.g, inheritedColor.g);
+                backupColor.b = max(backupColor.b, inheritedColor.b);
+                
+                break; //We hit a star, so we can stop looking
+            }
+            else
+            {
+                //We didn't hit a star, so we can inherit the color from the star
+                backupColor.r = max(backupColor.r, inheritedColor.r);
+                backupColor.g = max(backupColor.g, inheritedColor.g);
+                backupColor.b = max(backupColor.b, inheritedColor.b);
+                entryPoint = setEntryPoint(exitPoint, index);
+                oldIndex = index; //Save the old index
+                float3 newEntryPoint = float3(0, 0, 0); //The new entry point of the ray, to be adjusted inside the getNextSectorIndex function
+                index = GetNextSectorIndex(index, exitPoint, newEntryPoint);
+                entryPoint = newEntryPoint;
+            }
+            iterations++;
+            if (iterations >= breakLimit)
+            {
+                //If we hit the break limit, we can assume that we're in an infinite loop, so we can just return red
+                backupColor = float4(1, 0, 0, 1);
+                break;
+            }
+        }
+        Result[id.xy] = backupColor;
+    }
+
+    //Result[id.xy] = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
+}
+

@@ -38,7 +38,7 @@ public class Stars : MonoBehaviour
     public Vector3Int currentLocation = new Vector3Int(10, 10, 10); // The current Star location in the array.
     public Texture2D[] textures; // The array of textures for the skybox
     public float glowMultiplier = 2.0f; // The multiplier for the glow of the stars, so we can see them better in the skybox
-
+    public ComputeShader skyboxRenderer; // The skybox renderer shader, so we can do all the collision math on the gpu in parallel, and then just render the texture to the skybox.
 
     //Visualizer
     public bool refresh = false;
@@ -118,7 +118,13 @@ public class Stars : MonoBehaviour
     //Takes in 2 directions, and a resolution, and fires out rays from the center of the Star system to the edges of the cube, and checks if there are any stars in the way.
     Texture2D generateTexture(Vector3 TopLeftWorldSpace, Vector3 BottomRightWorldSpace, Vector2Int resolution)
     {
+
+
         Texture2D tex = new Texture2D(resolution.x, resolution.y);
+
+        RenderTexture result = new RenderTexture(resolution.x, resolution.y, 0);
+        result.enableRandomWrite = true;
+        result.Create();
 
 
         //Start with figuring out a stepsize for each pixel of the texture, so I know what to adjust the ray by
@@ -131,6 +137,83 @@ public class Stars : MonoBehaviour
         Vector3 direction = new Vector3(0, 0, 0); //The direction of the ray, starts at the center of the solar system
         //int starSize = 15; //The radius of the Star
 
+
+        //Shader stuff
+        //The shader just needs to get the all of the star offsets, size, and their colors, and return the color value of all the pixels in the texture
+        //Fingers crossed that these don't get mixed up when sent over to the shader.
+        int kernel = skyboxRenderer.FindKernel("CSMain"); //The shader program
+        ComputeBuffer starOffsetBuffer = new ComputeBuffer(stars.Length, sizeof(float) * 3); //The buffer for the star offsets, all vector3s
+        ComputeBuffer starColorBuffer = new ComputeBuffer(stars.Length, sizeof(float) * 4); //The buffer for the star colors, all colors
+        ComputeBuffer starSizeBuffer = new ComputeBuffer(stars.Length, sizeof(float)); //The buffer for the star sizes, all floats
+
+        //temporary 1D arrays for the star data
+        Vector3[] starOffsets = new Vector3[stars.Length]; //The array for the star offsets
+        Color[] starColors = new Color[stars.Length]; //The array for the star colors
+        float[] starSizes = new float[stars.Length]; //The array for the star sizes
+
+        //Filling the Buffers with the star data
+        //TODO: Fill the buffers
+        for (int i = 0; i < width; i++)
+            for (int j = 0; j < height; j++)
+                for (int k = 0; k < depth; k++)
+                {
+                    //convert to 1D array
+                    int index = i * height * depth + j * depth + k; //The index of the star in the array
+                    starOffsets[index] = stars[i, j, k].offSet; //The position of the Star
+                    starColors[index] = stars[i, j, k].color; //The color of the Star
+                    starSizes[index] = stars[i, j, k].mass; //The size of the Star
+                }
+
+        //Set the buffers in the shader
+        starOffsetBuffer.SetData(starOffsets); //Set the star offsets in the buffer
+        starColorBuffer.SetData(starColors);
+        starSizeBuffer.SetData(starSizes); //Set the star sizes in the buffer
+
+        //Set the buffers in the shader
+        skyboxRenderer.SetBuffer(kernel, "starOffsets", starOffsetBuffer); //Set the star offsets in the shader
+        skyboxRenderer.SetBuffer(kernel, "starColors", starColorBuffer); //Set the star colors in the shader
+        skyboxRenderer.SetBuffer(kernel, "starSizes", starSizeBuffer); //Set the star sizes in the shader
+
+        //Set the data in the shader
+        skyboxRenderer.SetInt("width", width); //The width of the star array
+        skyboxRenderer.SetInt("height", height); //The height of the star array
+        skyboxRenderer.SetInt("depth", depth); //The depth of the star array
+        skyboxRenderer.SetFloat("baseRadius", baseStarRadius);
+        skyboxRenderer.SetFloat("radiusIncrease", radiusIncrease);
+        skyboxRenderer.SetFloat("AUSize", AUSize); //The size of an AU, so we can scale the stars to the right size
+        skyboxRenderer.SetFloat("glowMultiplier", glowMultiplier); //The multiplier for the glow of the stars, so we can see them better in the skybox
+        skyboxRenderer.SetInts("resolution", resolution.x, resolution.y);
+        skyboxRenderer.SetVector("stepSize", new Vector4(stepSize.x, stepSize.y, stepSize.z, 0)); //The step size for each pixel of the texture, in world space
+        skyboxRenderer.SetVector("bottomRight", new Vector4(BottomRightWorldSpace.x, BottomRightWorldSpace.y, BottomRightWorldSpace.z, 0)); //The bottom right corner of the texture face, in world space
+        skyboxRenderer.SetVector("test", new Vector4(test.x, test.y, test.z, 0)); //The test vector, to see which axis is zeroed out
+        skyboxRenderer.SetVector("starSectorSize", new Vector4(starSectorSize.x, starSectorSize.y, starSectorSize.z, 0)); //The size of the sector of stars, in AU
+        skyboxRenderer.SetInts("startingStarIndex", currentLocation.x, currentLocation.y, currentLocation.z); //The current location of the star in the array
+
+        skyboxRenderer.SetTexture(kernel, "Result", result); //Set the texture to the render texture
+
+        //Thread groups
+        int threadGroupsX = Mathf.CeilToInt(resolution.x / 64f); //The number of thread groups in the x direction
+        int threadGroupsY = Mathf.CeilToInt(resolution.y / 1f); //The number of thread groups in the y direction
+        int threadGroupsZ = 1; //The number of thread groups in the z direction
+
+        //Dispatch the shader
+        skyboxRenderer.Dispatch(kernel, threadGroupsX, threadGroupsY, threadGroupsZ); //Dispatch the shader
+
+        RenderTexture.active = result; //Set the render texture as the active render texture
+        tex.ReadPixels(new Rect(0, 0, resolution.x, resolution.y), 0, 0); //Read the pixels from the render texture
+        tex.Apply(); //Apply the changes to the texture
+
+        RenderTexture.active = null; //Set the active render texture to null
+
+        //Release the buffers
+        starOffsetBuffer.Release(); //Release the star offsets buffer
+        starColorBuffer.Release(); //Release the star colors buffer
+        starSizeBuffer.Release(); //Release the star sizes buffer
+        //Release the render texture
+        result.Release(); //Release the render texture
+
+        return tex;
+
         //Left or Right
         if (test.x == 0)
         {
@@ -140,11 +223,11 @@ public class Stars : MonoBehaviour
                 {
                     Vector3 exitPoint = BottomRightWorldSpace - new Vector3(0, stepSize.y * i, stepSize.z * j); //The exit point of the ray from the starting sector.
                     direction = exitPoint;
+                    direction.Normalize(); //Normalize the direction vector, so we can use it for the raycasting
 
 
                     entryPoint = setEntryPoint(exitPoint, currentLocation); //Set the new entry point, for the next cube. We know we're going in an 
                     Vector3Int index = GetNextSectorIndex(currentLocation, exitPoint); //Get the next sector index, so we can check if the ray hits a star in the next sector
-                    direction.Normalize(); //Normalize the direction vector, so we can use it for the raycasting
                     Color backupColor = Color.black;
                     while (index != new Vector3(-1, -1, -1)) //Once we get a vector3 Zero'd out, we've hit the edge of the universe.
                     {

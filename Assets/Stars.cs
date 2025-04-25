@@ -89,58 +89,94 @@ public class Stars : MonoBehaviour
 
 
         textures = new Texture2D[6]; //Up down left right forward back
-        textures[0] = generateTexture(new Vector3(-starSectorSize.x * AUSize / 2, starSectorSize.y * AUSize / 2, starSectorSize.z * AUSize / 2), new Vector3(starSectorSize.x * AUSize / 2, starSectorSize.y * AUSize / 2, -starSectorSize.z  * AUSize / 2), resolution); //Up
-        textures[1] = generateTexture(new Vector3(starSectorSize.x * AUSize / 2, -starSectorSize.y * AUSize / 2, starSectorSize.z * AUSize / 2), new Vector3(-starSectorSize.x * AUSize / 2, -starSectorSize.y * AUSize / 2, -starSectorSize.z * AUSize / 2), resolution); //Down
-        textures[2] = generateTexture(new Vector3(starSectorSize.x * AUSize / 2, starSectorSize.y * AUSize / 2, starSectorSize.z * AUSize / 2), new Vector3(starSectorSize.x * AUSize / 2, -starSectorSize.y * AUSize / 2, -starSectorSize.z * AUSize / 2), resolution); //Left
-        textures[3] = generateTexture(new Vector3(-starSectorSize.x * AUSize / 2, -starSectorSize.y * AUSize / 2, starSectorSize.z * AUSize / 2), new Vector3(-starSectorSize.x * AUSize / 2, starSectorSize.y * AUSize / 2, -starSectorSize.z * AUSize / 2), resolution); //Right
-        textures[4] = generateTexture(new Vector3(starSectorSize.x * AUSize / 2, starSectorSize.y * AUSize / 2, starSectorSize.z * AUSize / 2), new Vector3(-starSectorSize.x * AUSize / 2, -starSectorSize.y * AUSize / 2, starSectorSize.z * AUSize / 2), resolution); //Front
-        textures[5] = generateTexture(new Vector3(starSectorSize.x * AUSize / 2, -starSectorSize.y * AUSize / 2, -starSectorSize.z * AUSize / 2), new Vector3(-starSectorSize.x * AUSize / 2, starSectorSize.y * AUSize / 2, -starSectorSize.z * AUSize / 2), resolution); //Back
+        textures[0] = generateTexture(new Vector3(-starSectorSize.x / 2, starSectorSize.y / 2, -starSectorSize.z / 2), new Vector3(starSectorSize.x / 2, starSectorSize.y / 2, starSectorSize.z / 2), resolution); //Up
+        textures[1] = generateTexture(new Vector3(-starSectorSize.x / 2, -starSectorSize.y / 2, starSectorSize.z / 2), new Vector3(starSectorSize.x / 2, -starSectorSize.y / 2, -starSectorSize.z / 2), resolution); //Down
+        textures[2] = generateTexture(new Vector3(starSectorSize.x / 2, starSectorSize.y / 2, starSectorSize.z / 2), new Vector3(starSectorSize.x / 2, -starSectorSize.y / 2, -starSectorSize.z / 2), resolution); //Right
+        textures[3] = generateTexture(new Vector3(-starSectorSize.x / 2, starSectorSize.y / 2, -starSectorSize.z / 2), new Vector3(-starSectorSize.x / 2, -starSectorSize.y / 2, starSectorSize.z / 2), resolution); //Left
+        textures[4] = generateTexture(new Vector3(-starSectorSize.x / 2, starSectorSize.y / 2, starSectorSize.z / 2), new Vector3(starSectorSize.x / 2, -starSectorSize.y / 2, starSectorSize.z / 2), resolution); //Front
+        textures[5] = generateTexture(new Vector3(starSectorSize.x / 2, starSectorSize.y / 2, -starSectorSize.z / 2), new Vector3(-starSectorSize.x / 2, -starSectorSize.y / 2, -starSectorSize.z / 2), resolution); //Back
+
+
+        //So I can disable some sides
+        for (int i = 0; i < 6; i++)
+        {
+            if (textures[i] == null)
+            {
+                //Set to black
+                textures[i] = new Texture2D(resolution.x, resolution.y);
+                Color[] pixels = new Color[resolution.x * resolution.y];
+                for (int j = 0; j < pixels.Length; j++)
+                {
+                    pixels[j] = Color.black;
+                }
+                textures[i].SetPixels(pixels);
+                textures[i].Apply();
+            }
+        }
+
+        //textures[2] = rotateTexture(textures[2], true); //Rotate the right texture 90 degrees clockwise, gross but I have to see.
+
 
         skybox.SetPixels(textures[0].GetPixels(), CubemapFace.PositiveY); //Set the pixels for the up side of the cube
         skybox.SetPixels(textures[1].GetPixels(), CubemapFace.NegativeY); //Set the pixels for the down side of the cube
-        skybox.SetPixels(textures[2].GetPixels(), CubemapFace.NegativeX); //Set the pixels for the left side of the cube
-        skybox.SetPixels(textures[3].GetPixels(), CubemapFace.PositiveX); //Set the pixels for the right side of the cube
+        skybox.SetPixels(textures[2].GetPixels(), CubemapFace.PositiveX); //Set the pixels for the right side of the cube
+        skybox.SetPixels(textures[3].GetPixels(), CubemapFace.NegativeX); //Set the pixels for the left side of the cube
         skybox.SetPixels(textures[4].GetPixels(), CubemapFace.PositiveZ); //Set the pixels for the front side of the cube
         skybox.SetPixels(textures[5].GetPixels(), CubemapFace.NegativeZ); //Set the pixels for the back side of the cube
 
-        ////Now we need to apply the texture to the skybox
-        //Debug.Log("Applying skybox texture");
         skybox.Apply(); //Apply the changes to the skybox
-        ////Set the skybox material to the new skybox
         Material skyboxMaterial = new Material(Shader.Find("Skybox/Cubemap"));
-        skyboxMaterial.SetTexture("_Tex", skybox); //Set the texture of the skybox material to the new skybox
+        skyboxMaterial.SetTexture("_Tex", skybox);
 
         ////Set the skybox in rendersettings
-        RenderSettings.skybox = skyboxMaterial; //Set the skybox in the render settings
+        RenderSettings.skybox = skyboxMaterial;
 
+    }
+
+    Texture2D rotateTexture(Texture2D originalTexture, bool clockwise)
+    {
+        Color32[] original = originalTexture.GetPixels32();
+        Color32[] rotated = new Color32[original.Length];
+        int w = originalTexture.width;
+        int h = originalTexture.height;
+
+        int iRotated, iOriginal;
+
+        for (int j = 0; j < h; ++j)
+        {
+            for (int i = 0; i < w; ++i)
+            {
+                iRotated = (i + 1) * h - j - 1;
+                iOriginal = clockwise ? original.Length - 1 - (j * w + i) : j * w + i;
+                rotated[iRotated] = original[iOriginal];
+            }
+        }
+
+        Texture2D rotatedTexture = new Texture2D(h, w);
+        rotatedTexture.SetPixels32(rotated);
+        rotatedTexture.Apply();
+        return rotatedTexture;
     }
 
     //Takes in 2 directions, and a resolution, and fires out rays from the center of the Star system to the edges of the cube, and checks if there are any stars in the way.
     Texture2D generateTexture(Vector3 TopLeftWorldSpace, Vector3 BottomRightWorldSpace, Vector2Int resolution)
     {
-
-
         Texture2D tex = new Texture2D(resolution.x, resolution.y);
-
         RenderTexture result = new RenderTexture(resolution.x, resolution.y, 0);
         result.enableRandomWrite = true;
         result.Create();
 
-
         //Start with figuring out a stepsize for each pixel of the texture, so I know what to adjust the ray by
         Vector3 stepSize = new Vector3((BottomRightWorldSpace.x - TopLeftWorldSpace.x) / resolution.x, (BottomRightWorldSpace.y - TopLeftWorldSpace.y) / resolution.y, (BottomRightWorldSpace.z - TopLeftWorldSpace.z) / resolution.y); //The step size for each pixel of the texture, in world space
         //Remove the unused axis from the direction vectors, makes the math easier
-        Vector3 test = new Vector3(TopLeftWorldSpace.x - BottomRightWorldSpace.x, TopLeftWorldSpace.y - BottomRightWorldSpace.y, TopLeftWorldSpace.z - BottomRightWorldSpace.z);
+        Vector3 test = new Vector3(BottomRightWorldSpace.x - TopLeftWorldSpace.x, BottomRightWorldSpace.y - TopLeftWorldSpace.y, BottomRightWorldSpace.z - TopLeftWorldSpace.z);
         //if the x axis zeros out, then we're only interested in the y and z axis
         Vector3 entryPoint = new Vector3(0, 0, 0); //The entry point of the ray, starts at the center of the solar system
         Vector3 starPosition = new Vector3(0, 0, 0); //The position of the Star, starts at the center of the solar system
         Vector3 direction = new Vector3(0, 0, 0); //The direction of the ray, starts at the center of the solar system
-        //int starSize = 15; //The radius of the Star
 
 
         //Shader stuff
-        //The shader just needs to get the all of the star offsets, size, and their colors, and return the color value of all the pixels in the texture
-        //Fingers crossed that these don't get mixed up when sent over to the shader.
         int kernel = skyboxRenderer.FindKernel("CSMain"); //The shader program
         ComputeBuffer starOffsetBuffer = new ComputeBuffer(stars.Length, sizeof(float) * 3); //The buffer for the star offsets, all vector3s
         ComputeBuffer starColorBuffer = new ComputeBuffer(stars.Length, sizeof(float) * 4); //The buffer for the star colors, all colors
@@ -184,7 +220,7 @@ public class Stars : MonoBehaviour
         skyboxRenderer.SetFloat("glowMultiplier", glowMultiplier); //The multiplier for the glow of the stars, so we can see them better in the skybox
         skyboxRenderer.SetInts("resolution", resolution.x, resolution.y);
         skyboxRenderer.SetVector("stepSize", new Vector4(stepSize.x, stepSize.y, stepSize.z, 0)); //The step size for each pixel of the texture, in world space
-        skyboxRenderer.SetVector("bottomRight", new Vector4(BottomRightWorldSpace.x, BottomRightWorldSpace.y, BottomRightWorldSpace.z, 0)); //The bottom right corner of the texture face, in world space
+        skyboxRenderer.SetVector("topLeft", new Vector4(TopLeftWorldSpace.x, TopLeftWorldSpace.y, TopLeftWorldSpace.z, 0)); //The bottom right corner of the texture face, in world space
         skyboxRenderer.SetVector("test", new Vector4(test.x, test.y, test.z, 0)); //The test vector, to see which axis is zeroed out
         skyboxRenderer.SetVector("starSectorSize", new Vector4(starSectorSize.x, starSectorSize.y, starSectorSize.z, 0)); //The size of the sector of stars, in AU
         skyboxRenderer.SetInts("startingStarIndex", currentLocation.x, currentLocation.y, currentLocation.z); //The current location of the star in the array
@@ -192,7 +228,7 @@ public class Stars : MonoBehaviour
         skyboxRenderer.SetTexture(kernel, "Result", result); //Set the texture to the render texture
 
         //Thread groups
-        int threadGroupsX = Mathf.CeilToInt(resolution.x / 64f); //The number of thread groups in the x direction
+        int threadGroupsX = Mathf.CeilToInt(resolution.x / 1024f); //The number of thread groups in the x direction
         int threadGroupsY = Mathf.CeilToInt(resolution.y / 1f); //The number of thread groups in the y direction
         int threadGroupsZ = 1; //The number of thread groups in the z direction
 
@@ -214,376 +250,6 @@ public class Stars : MonoBehaviour
 
         return tex;
 
-        //Left or Right
-        if (test.x == 0)
-        {
-            for (int i = 0; i < resolution.x; i++)
-            {
-                for (int j = 0; j < resolution.y; j++)
-                {
-                    Vector3 exitPoint = BottomRightWorldSpace - new Vector3(0, stepSize.y * i, stepSize.z * j); //The exit point of the ray from the starting sector.
-                    direction = exitPoint;
-                    direction.Normalize(); //Normalize the direction vector, so we can use it for the raycasting
-
-
-                    entryPoint = setEntryPoint(exitPoint, currentLocation); //Set the new entry point, for the next cube. We know we're going in an 
-                    Vector3Int index = GetNextSectorIndex(currentLocation, exitPoint); //Get the next sector index, so we can check if the ray hits a star in the next sector
-                    Color backupColor = Color.black;
-                    while (index != new Vector3(-1, -1, -1)) //Once we get a vector3 Zero'd out, we've hit the edge of the universe.
-                    {
-                        //Calculate the new exit point, based on the new entry point and the direction
-                        exitPoint = CalculateExitPoint(entryPoint, direction); //The exit point of the ray
-                        //Check if the ray hits a star
-                        Color inheritedColor = Color.black;
-                        if (CheckForStarHit(entryPoint, exitPoint, stars[(int)index.x, (int)index.y, (int)index.z], out inheritedColor)) //If the ray hits a star
-                        {
-                            //If the inheritedColor is brighter than the star color, we can assume that this star is being outshined by another, so we'll set the color to the inheritedColor instead.
-                            float advBrightnessHit = (inheritedColor.r + inheritedColor.g + inheritedColor.b) / 3;
-                            float advBrightnessBackup = (backupColor.r + backupColor.g + backupColor.b) / 3;
-                            if (advBrightnessHit > advBrightnessBackup) //If the inherited color is brighter than the backup color
-                            {
-                                tex.SetPixel(i, j, inheritedColor); //Set the color of the pixel to the color of the star
-                                break; //Continue to the next pixel
-                            }
-                            else
-                            {
-                                //Otherwise, Something in front of the star is outshining it, and blocking its light, so we'll set the color to the star color, so we'll use the backup color
-                                tex.SetPixel(i, j, backupColor);
-                                break; //Continue to the next pixel
-                            }
-                        }
-                        else
-                        {
-                            //Use the max values for the inherited color, so we can see the glow of the star
-                            //We'll use max values, hopefully this will allow for some color mixing, while also preserving brightness
-                            backupColor = new Color(Mathf.Max(backupColor.r, inheritedColor.r), Mathf.Max(backupColor.g, inheritedColor.g), Mathf.Max(backupColor.b, inheritedColor.b));
-
-                            //If we don't hit a star, we move on to the next sector
-                            entryPoint = setEntryPoint(exitPoint, index); //Set the new entry point, for the next cube. We know we're going in an
-                            index = GetNextSectorIndex(index, exitPoint); //Get the next sector index, so we can check if the ray hits a star in the next sector.
-                        }
-                    }
-
-                    //Exiting the while loop means no hits, so set the pixel to black
-                    if (index == new Vector3(-1, -1, -1)) //If we hit the edge of the universe
-                    {
-                        tex.SetPixel(i, j, backupColor); // Set the color to the backup color
-                    }
-                }
-            }
-        }
-        else if (test.y == 0)
-        {
-            //Up or Down
-            for (int i = 0; i < resolution.x; i++)
-            {
-                for (int j = 0; j < resolution.y; j++)
-                {
-                    Vector3 exitPoint = BottomRightWorldSpace - new Vector3(stepSize.x * i, 0, stepSize.z * j); //The exit point of the ray from the starting sector.
-                    direction = exitPoint; //Because we assume the start is 0, 0, 0, the direction is just the exitPoint
-                    entryPoint = setEntryPoint(exitPoint, currentLocation); //Set the new entry point, for the next cube. We know we're going in an 
-                    Vector3Int index = GetNextSectorIndex(currentLocation, exitPoint); //Get the next sector index, so we can check if the ray hits a star in the next sector
-                    direction.Normalize(); //Normalize the direction vector, so we can use it for the raycasting
-                    Color backupColor = Color.black;
-                    while (index != new Vector3(-1, -1, -1)) //Once we get a vector3 Zero'd out, we've hit the edge of the universe.
-                    {
-                        //Calculate the new exit point, based on the new entry point and the direction
-                        exitPoint = CalculateExitPoint(entryPoint, direction); //The exit point of the ray
-                        Color inheritedColor = Color.black;
-                        if (CheckForStarHit(entryPoint, exitPoint, stars[(int)index.x, (int)index.y, (int)index.z], out inheritedColor)) //If the ray hits a star
-                        {
-                            //If the inheritedColor is brighter than the star color, we can assume that this star is being outshined by another, so we'll set the color to the inheritedColor instead.
-                            float advBrightnessHit = (inheritedColor.r + inheritedColor.g  +inheritedColor.b) / 3;
-                            float advBrightnessBackup = (backupColor.r + backupColor.g + backupColor.b) / 3;
-                            if (advBrightnessHit > advBrightnessBackup) //If the inherited color is brighter than the backup color
-                            {
-                                tex.SetPixel(i, j, inheritedColor); //Set the color of the pixel to the color of the star
-                                break; //Continue to the next pixel
-                            }
-                            else
-                            {
-                                //Otherwise, Something in front of the star is outshining it, and blocking its light, so we'll set the color to the star color, so we'll use the backup color
-                                tex.SetPixel(i, j, backupColor);
-                                break; //Continue to the next pixel
-                            }
-                        }
-                        else
-                        {
-                            //Use the max values for the inherited color, so we can see the glow of the star
-                            backupColor = new Color(Mathf.Max(backupColor.r, inheritedColor.r), Mathf.Max(backupColor.g, inheritedColor.g), Mathf.Max(backupColor.b, inheritedColor.b));
-
-                            //If we don't hit a star, we move on to the next sector
-                            entryPoint = setEntryPoint(exitPoint, index); //Set the new entry point, for the next cube. We know we're going in an
-                            index = GetNextSectorIndex(index, exitPoint); //Get the next sector index, so we can check if the ray hits a star in the next sector.
-                        }
-                    }
-
-                    //Exiting the while loop means no hits, so set the pixel to black
-                    if (index == new Vector3(-1, -1, -1)) //If we hit the edge of the universe
-                    {
-                        tex.SetPixel(i, j, backupColor); // Set the color to the backup color
-                    }
-                }
-            }
-        }
-        else
-        {
-            //Front or Back
-            for (int i = 0; i < resolution.x; i++)
-            {
-                for (int j = 0; j < resolution.y; j++)
-                {
-                    Vector3 exitPoint = BottomRightWorldSpace - new Vector3(stepSize.x * i, stepSize.y * j, 0); //The exit point of the ray from the starting sector.
-                    direction = exitPoint;
-                    entryPoint = setEntryPoint(exitPoint, currentLocation); //Set the new entry point, for the next cube. We know we're going in an 
-                    Vector3Int index = GetNextSectorIndex(currentLocation, exitPoint); //Get the next sector index, so we can check if the ray hits a star in the next sector
-                    direction.Normalize(); //Normalize the direction vector, so we can use it for the raycasting
-                    Color backupColor = Color.black;
-                    while (index != new Vector3(-1, -1, -1)) //Once we get a vector3 Zero'd out, we've hit the edge of the universe.
-                    {
-                        //Calculate the new exit point, based on the new entry point and the direction
-                        exitPoint = CalculateExitPoint(entryPoint, direction); //The exit point of the ray
-                        Color inheritedColor = Color.black;
-                        if (CheckForStarHit(entryPoint, exitPoint, stars[(int)index.x, (int)index.y, (int)index.z], out inheritedColor)) //If the ray hits a star
-                        {
-                            //If the inheritedColor is brighter than the star color, we can assume that this star is being outshined by another, so we'll set the color to the inheritedColor instead.
-                            float advBrightnessHit = (inheritedColor.r + inheritedColor.g + inheritedColor.b) / 3;
-                            float advBrightnessBackup = (backupColor.r + backupColor.g + backupColor.b) / 3;
-                            if (advBrightnessHit > advBrightnessBackup) //If the inherited color is brighter than the backup color
-                            {
-                                tex.SetPixel(i, j, inheritedColor); //Set the color of the pixel to the color of the star
-                                break; //Continue to the next pixel
-                            }
-                            else
-                            {
-                                //Otherwise, Something in front of the star is outshining it, and blocking its light, so we'll set the color to the star color, so we'll use the backup color
-                                tex.SetPixel(i, j, backupColor);
-                                break; //Continue to the next pixel
-                            }
-                        }
-                        else
-                        {
-                            //Use the max values for the inherited color, so we can see the glow of the star
-                            backupColor = new Color(Mathf.Max(backupColor.r, inheritedColor.r), Mathf.Max(backupColor.g, inheritedColor.g), Mathf.Max(backupColor.b, inheritedColor.b));
-
-                            //If we don't hit a star, we move on to the next sector
-                            entryPoint = setEntryPoint(exitPoint, index); //Set the new entry point, for the next cube. We know we're going in an
-                            index = GetNextSectorIndex(index, exitPoint); //Get the next sector index, so we can check if the ray hits a star in the next sector.
-                        }
-                    }
-
-                    //Exiting the while loop means no hits, so set the pixel to black
-                    if (index == new Vector3(-1, -1, -1)) //If we hit the edge of the universe
-                    {
-                        tex.SetPixel(i, j, backupColor); // Set the color to the backup color
-                    }
-                }
-            }
-        }
-
-        return tex;
-    }
-
-    Vector3Int GetNextSectorIndex(Vector3Int currentStarIndex, Vector3 exitPoint)
-    {
-        //Whichever of the 3 axis is equal to the starSectorSize / 2, in either positive or negative direction, is the axis we need to move in.
-        double test = starSectorSize.x * AUSize / 2 + 0.001f;
-        if (exitPoint.x >= starSectorSize.x * AUSize / 2 - 0.001f)
-        {
-            currentStarIndex.x += 1;
-        }
-        if (exitPoint.x <= -starSectorSize.x * AUSize / 2 + 0.001f)
-        {
-            currentStarIndex.x -= 1;
-        }
-        if (exitPoint.y >= starSectorSize.y * AUSize / 2 - 0.001f)
-        {
-            currentStarIndex.y += 1;
-        }
-        if (exitPoint.y <= -starSectorSize.y * AUSize / 2 + 0.001f)
-        {
-            currentStarIndex.y -= 1;
-        }
-        if (exitPoint.z >= starSectorSize.z * AUSize / 2 - 0.001f)
-        {
-            currentStarIndex.z += 1;
-        }
-        if (exitPoint.z <= -starSectorSize.z * AUSize / 2 + 0.001f)
-        {
-            currentStarIndex.z -= 1;
-        }
-
-        //Check to make sure the next sector is within bounds
-        if (currentStarIndex.x < 0 || currentStarIndex.x >= width || currentStarIndex.y < 0 || currentStarIndex.y >= height || currentStarIndex.z < 0 || currentStarIndex.z >= depth)
-        {
-            //If the next sector is out of bounds, return an invalid value
-            return new Vector3Int(-1, -1, -1);
-        }
-
-        return currentStarIndex;
-    }
-
-
-    //Puts the entry point where the exit point is, and inverts it so its entering the next cube.
-    Vector3 setEntryPoint(Vector3 oldExitPoint, Vector3 currentStarIndex)
-    {
-        
-        if (oldExitPoint.x >= starSectorSize.x * AUSize / 2 - 0.0001f || oldExitPoint.x <= -starSectorSize.x * AUSize / 2 + 0.0001f)
-        {
-            oldExitPoint.x = -oldExitPoint.x;
-        }
-        if (oldExitPoint.y >= starSectorSize.y * AUSize / 2 - 0.0001f || oldExitPoint.y <= -starSectorSize.y * AUSize / 2 + 0.0001f)
-        {
-            oldExitPoint.y = -oldExitPoint.y;
-        }
-        if (oldExitPoint.z >= starSectorSize.z * AUSize / 2 - 0.0001f || oldExitPoint.z <= -starSectorSize.z * AUSize / 2 + 0.0001f)
-        {
-            oldExitPoint.z = -oldExitPoint.z;
-        }
-
-        return oldExitPoint;
-
-    }
-
-    //Calculates the P2 we need for intersection detection.
-    Vector4 CalculateExitPoint(Vector3 entryPoint, Vector3 direction)
-    {
-        const float EPSILON = 0.01f;
-        //We can create the other 5 planes of the cube, and then we can use the entry point and the direction to find the exit point of the ray.
-        //We can also calculate the max distance a ray could travel before hitting a plane, which is the distance from one corner of the cube to the oposite corner.
-
-        //The max distance the ray can travel before hitting a plane, we can use some simple trig to find this
-        //d = sqrt(x^2 + y^2 + z^2) + 10; //The max distance the ray can travel before hitting a plane, with a little extra for floating point errors
-        float maxDistance = MathF.Sqrt(MathF.Pow(starSectorSize.x * AUSize, 2) + MathF.Pow(starSectorSize.y * AUSize, 2) + MathF.Pow(starSectorSize.z * AUSize, 2));
-
-        //points on each plane, for the plane definitions
-        float hx = starSectorSize.x * AUSize / 2; //Half the size of the sector in the x direction
-        float hy = starSectorSize.y * AUSize / 2; //Half the size of the sector in the y direction
-        float hz = starSectorSize.z * AUSize / 2; //Half the size of the sector in the z direction
-
-        Plane[] planes = new Plane[6]; //The planes of the cube, we'll use this to construct the planes
-        planes[0] = new Plane(Vector3.forward, new Vector3(0, 0, hz)); //The front plane of the cube
-        planes[1] = new Plane(Vector3.back, new Vector3(0, 0, -hz)); //The back plane of the cube
-        planes[2] = new Plane(Vector3.right, new Vector3(hx, 0, 0)); //The right plane of the cube
-        planes[3] = new Plane(Vector3.left, new Vector3(-hx, 0, 0)); //The left plane of the cube
-        planes[4] = new Plane(Vector3.up, new Vector3(0, hy, 0)); //The top plane of the cube
-        planes[5] = new Plane(Vector3.down, new Vector3(0, -hy, 0)); //The bottom plane of the cube
-
-
-        //The entry point should be converted to local space before hitting this function, meaning that either the x, y, or z axis should be 0
-        //we'll normalize the direction vector to make it easier
-        direction.Normalize();
-
-        Vector3 exitPoint = new Vector3(0, 0, 0); //The exit point of the ray, with the face index, so If theres no Star hit, we can generate the next cube.
-        Vector3 p1 = entryPoint; //The entry point of the ray, TODO: Make sure that we set up the exit point correctly, any point that hits the min/max of the cube needs to to have that dimension inverted, so it can be used for the next cube.
-
-        
-
-        Vector3 p2 = new Vector3(entryPoint.x + direction.x * maxDistance, entryPoint.y + direction.y * maxDistance, entryPoint.z + direction.z * maxDistance); //The end point of the ray, not the exit point
-        float minDistance = maxDistance;
-        //Now we'll do basic collision detection to see which plane the ray will hit
-        for (int i = 0; i < planes.Length; i++)
-        {
-            Plane plane = planes[i]; //The plane we're checking against
-
-            if (plane.Raycast(new Ray(p1, direction), out float enter)) //If the ray hits the plane
-            {
-                if (enter > 0 && enter <= minDistance) //If the ray hits the plane within the max distance
-                {
-                    Vector3 hitPoint = p1 + direction * enter; //The point where the ray hits the plane
-                    hitPoint.x = Mathf.Clamp(hitPoint.x, -hx, hx);
-                    hitPoint.y = Mathf.Clamp(hitPoint.y, -hy, hy);
-                    hitPoint.z = Mathf.Clamp(hitPoint.z, -hz, hz);
-                    //Getting a strange issue where the ray isn't hitting within the bounds of the cube, not sure why.
-                    if (Mathf.Abs(hitPoint.x) < hx + EPSILON && Mathf.Abs(hitPoint.y) < hy + EPSILON && Mathf.Abs(hitPoint.z) < hz + EPSILON) //If the hit point is within the bounds of the cube
-                    {
-                        exitPoint = new Vector3(hitPoint.x, hitPoint.y, hitPoint.z); //The exit point of the ray, with the face index
-                        minDistance = enter; //The minimum distance to the plane
-                    }
-                }
-            }
-
-        }
-
-
-        return exitPoint;
-    }
-
-    bool CheckForStarHit(Vector3 entryPoint, Vector3 exitPoint, Star star, out Color color)
-    {
-        //check if a ray between the two points hits the Star
-        Vector3 starPosition = new Vector3(star.offSet.x * AUSize, star.offSet.y * AUSize, star.offSet.z * AUSize); //The position of the Star
-        float starSize = (baseStarRadius + (radiusIncrease * star.mass)) * 0.5f; //The radius of the Star, discovered recently that the scale is actually the diameter, so we need to divide by 2
-
-        //For some reason, this code just WON'T WORK if I'm normalizing the ray direction, so I'm going to have to do some math to get the ray direction normalized, and then use that for the raycasting.
-        Vector3 rayDirNotNormalized = entryPoint - exitPoint; //The direction of the ray
-        Vector3 dirNormalized = rayDirNotNormalized.normalized; //The normalized direction of the ray
-        Vector3 starDirection = (starPosition - entryPoint); //The direction of the ray
-
-        float a = Vector3.Dot(rayDirNotNormalized, rayDirNotNormalized); //The length of the ray
-        float b = 2 * Vector3.Dot(starDirection, rayDirNotNormalized); //The distance between the entry point and the Star
-        float c = Vector3.Dot(starDirection, starDirection) - starSize * starSize;
-
-        float discriminant = b * b - 4 * a * c; //The discriminant of the quadratic equation
-
-        if (discriminant >= 0)
-        {
-            //Possible hit
-            discriminant = Mathf.Sqrt(discriminant); //The square root of the discriminant
-            float t1 = (-b - discriminant) / (2 * a); //The first solution of the quadratic equation
-            float t2 = (-b + discriminant) / (2 * a); //The second solution of the quadratic equation
-
-            if ((t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1)) //If both solutions are positive, then the ray hits the Star
-            {
-                color = star.color; //Return the color of the star
-                return true; //Show the visual Star
-            }
-        }
-
-        //Outer glow radius
-        c = Vector3.Dot(starDirection, starDirection) - (starSize * glowMultiplier) * (starSize * glowMultiplier);
-        discriminant = b * b - 4 * a * c; //The discriminant of the quadratic equation
-
-        //Outer glow hit, so we can inherit some light from the star
-        if (discriminant >= 0)
-        {
-            //Possible hit
-            discriminant = Mathf.Sqrt(discriminant); //The square root of the discriminant
-            float t1 = (-b - discriminant) / (2 * a); //The first solution of the quadratic equation
-            float t2 = (-b + discriminant) / (2 * a); //The second solution of the quadratic equation
-            if ((t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1)) //If both solutions are positive, then the ray hits the Star
-            {
-                float glowDiameter = starSize * 2 * glowMultiplier; //The diameter of the glow, radius * 2 * glowRadius
-
-                //What percent of the glow does the ray travel through?
-                Vector3 intersection1 = entryPoint + rayDirNotNormalized * t1; //The first intersection point
-                Vector3 intersection2 = entryPoint + rayDirNotNormalized * t2; //The second intersection point
-                float distance = Vector3.Distance(intersection1, intersection2); //The distance between the two intersection points
-
-                float percent = distance / glowDiameter; //The percent of the glow that the ray travels through
-
-                float glowStrength = CalculateGlowStrength(percent); //Calculate the glow strength based on the percent of the glow that the ray travels through
-
-                color = Color.Lerp(Color.black, star.color, glowStrength); //The color of the star, based on the glow strength
-                return false; //No collision, so keep looking.
-            }
-
-        }
-        color = Color.black;
-        return false;
-    }
-
-    //Where the curve lives, a value between 0 and 1, 1 means 100% of light.
-    float CalculateGlowStrength(float percent)
-    {
-        float max = 0.75f; //The maximum value of the curve
-
-        float str = Mathf.Pow(percent, 4); //The strength of the glow, based on the percent of the glow that the ray travels through
-
-        //Clamp the value between 0 and max
-        str = Mathf.Clamp(str, 0, max); //Clamp the value between 0 and 1
-
-        return str;
     }
 
     void Refresh()
@@ -726,142 +392,7 @@ public class Stars : MonoBehaviour
         }
 
 
-        //Cube Visualizing
-        if (cubeVisualize)
-        {
-            Vector3Int visualizedIndex = starIndex; //Set the visualized index to the current index
-            //Draw a line between the two points
-            Debug.DrawLine(gizmoOne.transform.position, gizmoTwo.transform.position, Color.red);
-
-            Vector3 rayDirection = gizmoTwo.transform.position - gizmoOne.transform.position; //The direction of the ray
-
-            Vector3 entryPoint = gizmoOne.transform.position; //The entry point of the ray
-            Vector3 exitpoint = CalculateExitPoint(entryPoint, rayDirection); //The exit point of the ray
-
-            if (exitpointGizmos == null || exitpointGizmos.Length == 0) //If the exit point gizmo doesn't exist, create it
-            {
-                exitpointGizmos = new GameObject[100]; //Set the size of the array to 100
-            }
-
-            for (int j = 0; j < exitpointGizmos.Length; j++)
-            {
-                if (exitpointGizmos[j] == null) //If the gizmo doesn't exist, create it
-                {
-                    break; //Break out of the loop, we've hit the end of the array
-                }
-                if (exitpointGizmos[j].activeSelf)
-                {
-                    exitpointGizmos[j].SetActive(false); //Deactivate the gizmo
-                }
-            }
-
-
-            //If the exit point gizmo doesn't exist, create it
-            if (exitpointGizmos[0] == null)
-            {
-                GameObject exitpointGizmo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                exitpointGizmo.transform.localScale = new Vector3(10f, 10f, 10f);
-                exitpointGizmo.GetComponent<MeshRenderer>().material = exitPointMaterial;
-                exitpointGizmos[0] = exitpointGizmo; //Set the first gizmo to the new gizmo
-            }
-            exitpointGizmos[0].transform.position = new Vector3(exitpoint.x, exitpoint.y, exitpoint.z); //Set the position of the exit point gizmo
-            exitpointGizmos[0].SetActive(true); //Activate the gizmo
-
-            int i = 1;
-            while (visualizedIndex != new Vector3Int(-1, -1, -1))
-            {
-                //We loop until we hit the edge of the universe, or until the ray stops
-                Vector3Int nextSectorIndex = GetNextSectorIndex(visualizedIndex, exitpoint); //Get the next sector index, so we can check if the ray hits a star in the next sector
-                if (nextSectorIndex == visualizedIndex) //The ray didn't reach the next sector, so we can break out of the loop
-                {
-                    break;
-                }
-                if (nextSectorIndex == new Vector3Int(-1, -1, -1)) //If we hit the edge of the universe
-                {
-                    break; //Break out of the loop, we've hit the edge of the universe
-                }
-                if (exitpointGizmos.Length > 100) //Max number of gizmos
-                {
-                    break;
-                }
-
-                visualizedIndex = nextSectorIndex; //Set the visualized index to the next sector index
-                entryPoint = setEntryPoint(exitpoint, visualizedIndex); //Set the new entry point, for the next cube. We know we're going in an
-
-                exitpoint = CalculateExitPoint(entryPoint, rayDirection); //The exit point of the ray
-
-                float distance = Vector3.Distance(entryPoint, exitpoint);
-                Vector3 directionNormal = Vector3.Normalize(rayDirection);
-
-                Vector3 adjustment = directionNormal * distance;
-
-                //Check if there's an exit point gizmo for this index
-                if (exitpointGizmos[i] == null)
-                {
-                    GameObject exitpointGizmo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                    exitpointGizmo.transform.localScale = new Vector3(10f, 10f, 10f);
-                    exitpointGizmo.GetComponent<MeshRenderer>().material = exitPointMaterial;
-                    exitpointGizmos[i] = exitpointGizmo;
-                }
-                
-                exitpointGizmos[i].transform.position = new Vector3(exitpointGizmos[i-1].transform.position.x + adjustment.x, exitpointGizmos[i - 1].transform.position.y + adjustment.y, exitpointGizmos[i - 1].transform.position.z + adjustment.z); //Set the position of the exit point gizmo
-                exitpointGizmos[i].SetActive(true); //Activate the gizmo
-
-                i++;
-            }
-
-
-
-            //Disabled for now. Needs updating for multiple sectors
-            ////Create a Star in the correct spot in the cube, based on the Star Index
-            //Star starDetails = stars[starIndex.x, starIndex.y, starIndex.z]; //Get the Star details from the array
-            //if (visualStar == null)
-            //{
-            //    visualStar = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            //    visualStar.transform.localScale = new Vector3(0.1f, 0.1f, 0.1f);
-            //    visualStar.GetComponent<MeshRenderer>().enabled = false; //Hidden unless the ray is hitting a Star
-            //}
-
-            //visualStar.transform.position = new Vector3(starDetails.offSet.x * AUSize, starDetails.offSet.y * AUSize, starDetails.offSet.z * AUSize); //Set the position of the visual Star
-            //float scale = baseStarRadius + (radiusIncrease * starDetails.mass); //Calculate the scale of the Star
-            //visualStar.transform.localScale = new Vector3(scale, scale, scale); //Set the scale of the visual Star
-
-            ////check if a ray between the two points hits the Star
-            //Vector3 starPosition = new Vector3(starDetails.offSet.x * AUSize, starDetails.offSet.y * AUSize, starDetails.offSet.z * AUSize); //The position of the Star
-            //float starSize = (baseStarRadius + (radiusIncrease * starDetails.mass)) * 0.5f; //The radius of the Star, discovered recently that the scale is actually the diameter, so we need to divide by 2
-
-            //Vector3 rayDirNotNormalized = entryPoint - exitpoint; //The direction of the ray
-            //Vector3 starDirection = (starPosition - entryPoint); //The direction of the ray
-
-            //float a = Vector3.Dot(rayDirNotNormalized, rayDirNotNormalized);
-            //float b = 2 * Vector3.Dot(starDirection, rayDirNotNormalized); //The distance between the entry point and the Star
-            //float c = Vector3.Dot(starDirection, starDirection) - starSize * starSize;
-
-            //float discriminant = b * b - 4 * a * c; //The discriminant of the quadratic equation
-
-            //if (discriminant >= 0) {
-            //    //Possible hit
-            //    discriminant = Mathf.Sqrt(discriminant); //The square root of the discriminant
-            //    float t1 = (-b - discriminant) / (2 * a); //The first solution of the quadratic equation
-            //    float t2 = (-b + discriminant) / (2 * a); //The second solution of the quadratic equation
-
-            //    if ((t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1)) //If both solutions are positive, then the ray hits the Star
-            //    {
-            //        visualStar.GetComponent<MeshRenderer>().enabled = true; //Show the visual Star
-            //    }
-            //    else
-            //    {
-            //        visualStar.GetComponent<MeshRenderer>().enabled = false; //Hide the visual Star
-            //    }
-            //}
-            //else
-            //{
-            //    visualStar.GetComponent<MeshRenderer>().enabled = false; //Hide the visual Star
-            //}
-
-
-            
-        }
+        
     
         if (collisionVisualize)
         {
